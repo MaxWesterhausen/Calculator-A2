@@ -1,0 +1,45 @@
+#Arduino Programm
+
+void setup() {
+    Serial.begin(9600);
+}
+
+void loop() {
+    if (Serial.available() > 0) {
+        char buf[64];
+        int len = Serial.readBytesUntil('\n', buf, sizeof(buf) - 1);
+        buf[len] = '\0';
+
+        long num1, num2;
+        char op;
+
+        // Erwartet Format: "num1 op num2"
+        if (sscanf(buf, "%ld %c %ld", &num1, &op, &num2) != 3) {
+            Serial.println("ERR_PARSE");
+            return;
+        }
+
+        double result;
+
+        switch (op) {
+            case '+': result = (double)(num1 + num2); break;
+            case '-': result = (double)(num1 - num2); break;
+            case '*': result = (double)(num1 * num2); break;
+            case '/':
+                if (num2 == 0) {
+                    Serial.println("ERR_DIV0");
+                    return;
+                }
+                result = (double)num1 / (double)num2;
+                break;
+            default:
+                Serial.println("ERR_OP");
+                return;
+        }
+
+        // Ergebnis mit 2 Nachkommastellen senden
+        char resbuf[32];
+        dtostrf(result, 1, 2, resbuf);
+        Serial.println(resbuf);
+    }
+}
