@@ -1,0 +1,163 @@
+#PC Programm
+
+#include <iostream>
+#include <string>
+#include <windows.h>
+#include <conio.h> // Einladen der Header-Dateien
+
+using namespace std; // Verweis auf Standardbibliotheken
+
+HANDLE hSerial; // Handle für Windows benennen
+
+bool openSerial() { 
+    hSerial = CreateFileA("COM3", GENERIC_READ | GENERIC_WRITE, 0, NULL,
+        OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+    if (hSerial == INVALID_HANDLE_VALUE) return false;
+
+    DCB dcb = {};
+    dcb.DCBlength = sizeof(DCB);
+    GetCommState(hSerial, &dcb);
+    dcb.BaudRate = CBR_9600;
+    dcb.ByteSize = 8;
+    dcb.StopBits = ONESTOPBIT;
+    dcb.Parity = NOPARITY;
+    SetCommState(hSerial, &dcb);
+
+    COMMTIMEOUTS timeouts = {};
+    timeouts.ReadTotalTimeoutConstant = 5000; // 5 Sekunden Timeout
+    SetCommTimeouts(hSerial, &timeouts);
+    return true;
+} 
+// Serielle Kommunikation aufbauen
+
+void sendSerial(const string& msg) {
+    DWORD written;
+    WriteFile(hSerial, msg.c_str(), (DWORD)msg.size(), &written, NULL);
+}
+// Senden des eingegebenen Texts an Windows
+
+string receiveSerial() {
+    string result;
+    char c;
+    DWORD bytesRead;
+    while (ReadFile(hSerial, &c, 1, &bytesRead, NULL) && bytesRead > 0) {
+        if (c == '\n') break;
+        if (c != '\r') result += c;
+    }
+    return result;
+}
+// Lesen des Ergebnisses, welches der Arduino zurücksendet
+int inputNumber(const string& prompt, long long& num) {
+    while (true) {
+        cout << prompt;
+        string line;
+        getline(cin, line);
+
+        if (line == "B" || line == "b") return -1;
+        if (line == "Q" || line == "q") return -2;
+
+        if (line.empty()) {
+            cout << "Fehler: Leere Eingabe. Bitte eine ganze Zahl eingeben.\n";
+            continue;
+        }
+
+        size_t start = 0;
+        if (line[0] == '+' || line[0] == '-') start = 1;
+
+        if (start == line.size()) {
+            cout << "Fehler: Ungueltige Eingabe.\n";
+            continue;
+        }
+
+        bool valid = true;
+        for (size_t i = start; i < line.size(); i++) {
+            if (!isdigit((unsigned char)line[i])) { valid = false; break; }
+        }
+
+        if (!valid) {
+            cout << "Fehler: Nur ganze Zahlen sind erlaubt (keine Dezimalzahlen oder Buchstaben).\n";
+            continue;
+        }
+
+        try {
+            num = stoll(line);
+            return 0;
+        }
+        catch (...) {
+            cout << "Fehler: Zahl zu gross. Bitte kleinere Zahl eingeben.\n";
+        }
+    }
+}
+// Rueckgabe: 0 = ok, -1 = zurueck, -2 = beenden
+int main() {
+    if (!openSerial()) {
+        cout << "Fehler: COM3 konnte nicht geoeffnet werden.\n";
+        return 1;
+    }
+    cout << "Verbindung zu Arduino auf COM3 hergestellt.\n";
+    // Benachrichtigung zu Verbindungsaufbau
+    while (true) {
+        cout << "\n========== Taschenrechner ==========\n";
+        cout << "  1  :  Addition       (+)\n";
+        cout << "  2  :  Subtraktion    (-)\n";
+        cout << "  3  :  Multiplikation (*)\n";
+        cout << "  4  :  Division       (/)\n";
+        cout << "  Q  :  Beenden\n";
+        cout << "=====================================\n";
+        cout << "Auswahl: ";
+
+        char choice = _getch(); // Liest genau 1 Zeichen, ohne Enter
+        cout << choice << "\n";
+
+        if (choice == 'Q' || choice == 'q') break;
+
+        char op;
+        switch (choice) {
+        case '1': op = '+'; break;
+        case '2': op = '-'; break;
+        case '3': op = '*'; break;
+        case '4': op = '/'; break;
+        default:
+            cout << "Ungueltige Auswahl. Bitte 1-4 oder Q druecken.\n";
+            continue;
+        }
+
+        cout << "Rechenart: " << op << "  (B: zurueck, Q: Beenden)\n";
+
+        long long num1, num2;
+
+        int r = inputNumber("Erste Zahl  : ", num1);
+        if (r == -2) break;
+        if (r == -1) continue;
+
+        while (true) {
+            r = inputNumber("Zweite Zahl : ", num2);
+            if (r == -2 || r == -1) break;
+            if (op == '/' && num2 == 0) {
+                cout << "Fehler: Division durch 0 ist nicht erlaubt.\n";
+                continue;
+            }
+            break;
+        }
+        if (r == -2) break;
+        if (r == -1) continue;
+
+        string msg = to_string(num1) + " " + op + " " + to_string(num2) + "\n";
+        cout << "Sende an Arduino: " << msg;
+        sendSerial(msg);
+
+        cout << "Warte auf Ergebnis...\n";
+        string result = receiveSerial();
+
+        if (result.empty()) {
+            cout << "Fehler: Keine Antwort vom Arduino (Timeout).\n";
+        }
+        else {
+            cout << "Ergebnis: " << num1 << " " << op << " " << num2 << " = " << result << "\n";
+        }
+    }
+
+    CloseHandle(hSerial);
+    cout << "Programm beendet.\n";
+    return 0;
+}
